@@ -5,7 +5,7 @@
  * and the OpenClaw plugin gateway:startup hook.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { copyFile, chmod, mkdtemp, rm, writeFile } from "fs/promises";
+import { copyFile, chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -63,21 +63,32 @@ describe("TailscaleManager integration", () => {
 
 // ── Plugin hook tests ───────────────────────────────────────────────────────
 
+interface LogCapture {
+  info: string[];
+  warn: string[];
+  error: string[];
+}
+
 async function runStartup(
   tmpDir: string,
   gatewayPort?: number,
   authKey?: string,
   servePort?: number,
-): Promise<string[]> {
+): Promise<LogCapture> {
   const pluginModule = (await import("../index.js")) as any;
   const plugin = pluginModule.default;
-  const messages: string[] = [];
+  const logs: LogCapture = { info: [], warn: [], error: [] };
   const mockApi = {
     config: { gateway: { port: gatewayPort } },
     pluginConfig: {
       stateDir: tmpDir,
       authKey: authKey ?? "test-key",
       ...(servePort !== undefined && { servePort }),
+    },
+    logger: {
+      info: (msg: string) => logs.info.push(msg),
+      warn: (msg: string) => logs.warn.push(msg),
+      error: (msg: string) => logs.error.push(msg),
     },
     on: vi.fn(),
     registerHook: vi.fn(),
@@ -92,9 +103,9 @@ async function runStartup(
   if (!startupCall) throw new Error("gateway_start hook not registered via api.on");
 
   const handler = startupCall[1];
-  await handler({ messages, port: gatewayPort ?? 0 });
+  await handler({ port: gatewayPort ?? 0 });
 
-  return messages;
+  return logs;
 }
 
 describe("plugin gateway:startup hook", () => {
@@ -112,20 +123,18 @@ describe("plugin gateway:startup hook", () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("sends OK message when Tailscale is successfully started", async () => {
+  it("logs success when Tailscale is already authenticated", async () => {
     process.env.TAILSCALE_AUTH_KEY = "tskey-auth-test";
-    const messages = await runStartup(tmpDir);
-    expect(messages.some((m) => m.includes("Tailscale is up!")
-      || m.includes("tailscale: OK")
-      || m.includes("Tailscale state is reusable"))).toBe(true);
+    const logs = await runStartup(tmpDir);
+    expect(logs.info.some((m) => m.includes("tailscale:"))).toBe(true);
     delete process.env.TAILSCALE_AUTH_KEY;
   });
 
-  it("reports error when ensure fails (no auth, no prior state)", async () => {
-      await rm(join(tmpDir, ".ts-auth"), { force: true });
-      delete process.env.TAILSCALE_AUTH_KEY;
-      const messages = await runStartup(tmpDir);
-      expect(messages.some((m) => m.includes("tailscale failed"))).toBe(true);
+  it("logs error when ensure fails (no auth, no prior state)", async () => {
+    await rm(join(tmpDir, ".ts-auth"), { force: true });
+    delete process.env.TAILSCALE_AUTH_KEY;
+    const logs = await runStartup(tmpDir);
+    expect(logs.error.some((m) => m.includes("tailscale failed"))).toBe(true);
   });
 });
 
@@ -156,19 +165,21 @@ describe("plugin servePort config", () => {
 
   it("uses custom servePort instead of gateway port for TLS listener", async () => {
     process.env.TAILSCALE_AUTH_KEY = "tskey-auth-test";
-    const messages = await runStartup(tmpDir, occupiedPort, undefined, 8443);
-
-    expect(messages.some((m) => m.includes("HTTPS serve") && m.includes("configured"))).toBe(true);
-    expect(messages.some((m) => m.includes(`127.0.0.1:${occupiedPort}`))).toBe(true);
+    const logs = await runStartup(tmpDir, occupiedPort, undefined, 8443);
+    const serveConfig = await readFile(join(tmpDir, ".ts-serve"), "utf8");
+    expect(serveConfig).toContain("--https=8443");
+    expect(serveConfig).toContain(`127.0.0.1:${occupiedPort}`);
+    expect(logs.info.some((m) => m.includes("HTTPS serve configured"))).toBe(true);
     delete process.env.TAILSCALE_AUTH_KEY;
   });
 
   it("defaults servePort to 443 when not configured", async () => {
     process.env.TAILSCALE_AUTH_KEY = "tskey-auth-test";
-    const messages = await runStartup(tmpDir, occupiedPort);
-
-    expect(messages.some((m) => m.includes("HTTPS serve") && m.includes("configured"))).toBe(true);
-    expect(messages.some((m) => m.includes(`127.0.0.1:${occupiedPort}`))).toBe(true);
+    const logs = await runStartup(tmpDir, occupiedPort);
+    const serveConfig = await readFile(join(tmpDir, ".ts-serve"), "utf8");
+    expect(serveConfig).toContain("--https=443");
+    expect(serveConfig).toContain(`127.0.0.1:${occupiedPort}`);
+    expect(logs.info.some((m) => m.includes("tailscale-serve:"))).toBe(true);
     delete process.env.TAILSCALE_AUTH_KEY;
   });
 });

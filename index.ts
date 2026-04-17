@@ -9,8 +9,10 @@ export default definePluginEntry({
     const stateDir =
       (api.pluginConfig.stateDir as string | undefined) ?? join(CONFIG_DIR, ".tailscale");
     const loginServer = api.pluginConfig.loginServer as string | undefined;
+    const servePort = Number(api.pluginConfig.servePort) || 443;
 
     api.on("gateway_start", async (event) => {
+      console.log("[tailscale-wss-bootstrap] хук gateway_start сработал!");
       const mgr = new TailscaleManager(stateDir, loginServer);
 
       try {
@@ -31,13 +33,13 @@ export default definePluginEntry({
       if (!gatewayPort) return;
 
       try {
-        await mgr.serve(["--tls-terminated-tcp", String(gatewayPort), `127.0.0.1:${gatewayPort}`]);
+        await mgr.serve(["--tls-terminated-tcp", String(servePort), `127.0.0.1:${gatewayPort}`]);
         const serveLines = await mgr.serveStatus();
         const status = serveLines.join("\n");
         const verified = status.includes(`127.0.0.1:${gatewayPort}`);
 
         if (verified) {
-          const msg = `WSS ready (tcp:${gatewayPort} → 127.0.0.1:${gatewayPort})`;
+          const msg = `WSS ready (tcp:${servePort} → 127.0.0.1:${gatewayPort})`;
           if (event && Array.isArray(event.messages)) {
             event.messages.push(`tailscale-serve: ${msg}`);
           }

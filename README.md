@@ -40,6 +40,7 @@ The plugin works out of the box with zero configuration. All settings below are 
 |---|---|---|
 | `stateDir` | `{openclaw_dir}/.tailscale` | Directory for Tailscale binaries, state, socket, and logs |
 | `loginServer` | _(none — uses Tailscale SaaS)_ | Custom control server URL (e.g. Headscale) |
+| `servePort` | `443` | External TLS port for Tailscale Serve (must not conflict with other listeners) |
 
 <details>
 <summary>Example: custom config (fully optional)</summary>
@@ -51,7 +52,8 @@ The plugin works out of the box with zero configuration. All settings below are 
       "tailscale-wss-bootstrap": {
         "config": {
           "stateDir": "/custom/path/.tailscale",
-          "loginServer": "http://headscale.local:8080"
+          "loginServer": "http://headscale.local:8080",
+          "servePort": 8443
         }
       }
     }
@@ -71,13 +73,15 @@ The plugin works out of the box with zero configuration. All settings below are 
 When `gateway.port` is set in OpenClaw config, the plugin automatically runs:
 
 ```
-tailscale serve --tls-terminated-tcp <gatewayPort> 127.0.0.1:<gatewayPort>
+tailscale serve --tls-terminated-tcp <servePort> 127.0.0.1:<gatewayPort>
 ```
+
+The `servePort` (default `443`) is the external TLS port that Tailscale listens on; `gatewayPort` is the local port the gateway is bound to. They are intentionally separate so you can avoid port conflicts (e.g. if something else already listens on 443).
 
 The startup message confirms whether the rule is active:
 
 ```
-tailscale-serve: WSS ready (tcp:3001 → 127.0.0.1:3001)
+tailscale-serve: WSS ready (tcp:443 → 127.0.0.1:3001)
 ```
 
 ### Why this matters

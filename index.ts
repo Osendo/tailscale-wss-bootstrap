@@ -10,11 +10,20 @@ export default definePluginEntry({
       (api.pluginConfig.stateDir as string | undefined) ?? join(CONFIG_DIR, ".tailscale");
     const loginServer = api.pluginConfig.loginServer as string | undefined;
     const servePort = Number(api.pluginConfig.servePort) || 443;
+    const mgr = new TailscaleManager(stateDir, loginServer);
+
+    api.registerService({
+      name: "tailscale",
+      description: "Tailscale VPN sidecar — ensures daemon is running and authenticated",
+      async start() {
+        await mgr.ensure(process.env.TAILSCALE_AUTH_KEY);
+      },
+      async stop() {
+        await mgr.stopDaemon();
+      },
+    });
 
     api.on("gateway_start", async (event) => {
-      console.log("[tailscale-wss-bootstrap] хук gateway_start сработал!");
-      const mgr = new TailscaleManager(stateDir, loginServer);
-
       try {
         const lines = await mgr.ensure(process.env.TAILSCALE_AUTH_KEY);
         const msg = lines.join("\n") || "OK";

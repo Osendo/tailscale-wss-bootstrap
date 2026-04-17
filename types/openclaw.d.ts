@@ -39,6 +39,12 @@ interface OpenClawPluginApi {
     },
     opts?: { optional?: boolean }
   ): void;
+  registerService(service: {
+    name: string;
+    description?: string;
+    start(): Promise<void> | void;
+    stop?(): Promise<void> | void;
+  }): void;
 }
 
 interface InternalHookEvent {

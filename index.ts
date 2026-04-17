@@ -13,8 +13,7 @@ export default definePluginEntry({
     const mgr = new TailscaleManager(stateDir, loginServer);
 
     api.registerService({
-      name: "tailscale",
-      description: "Tailscale VPN sidecar — ensures daemon is running and authenticated",
+      id: "tailscale",
       async start() {
         await mgr.ensure(process.env.TAILSCALE_AUTH_KEY);
       },

@@ -20,6 +20,12 @@ interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
 }
 
+interface OpenClawPluginServiceContext {
+  config: OpenClawConfig;
+  workspaceDir?: string;
+  stateDir: string;
+}
+
 interface OpenClawPluginApi {
   id: string;
   config: OpenClawConfig;
@@ -40,10 +46,9 @@ interface OpenClawPluginApi {
     opts?: { optional?: boolean }
   ): void;
   registerService(service: {
-    name: string;
-    description?: string;
-    start(): Promise<void> | void;
-    stop?(): Promise<void> | void;
+    id: string;
+    start(ctx: OpenClawPluginServiceContext): Promise<void> | void;
+    stop?(ctx: OpenClawPluginServiceContext): Promise<void> | void;
   }): void;
 }
 

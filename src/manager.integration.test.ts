@@ -9,6 +9,7 @@ import { copyFile, chmod, mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { createServer, type Server } from "net";
 import { TailscaleManager } from "./manager.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "../test/fixtures");
@@ -66,16 +67,22 @@ async function runStartup(
   tmpDir: string,
   gatewayPort?: number,
   authKey?: string,
+  servePort?: number,
 ): Promise<string[]> {
   const pluginModule = (await import("../index.js")) as any;
   const plugin = pluginModule.default;
   const messages: string[] = [];
   const mockApi = {
     config: { gateway: { port: gatewayPort } },
-    pluginConfig: { stateDir: tmpDir, authKey: authKey ?? "test-key" },
+    pluginConfig: {
+      stateDir: tmpDir,
+      authKey: authKey ?? "test-key",
+      ...(servePort !== undefined && { servePort }),
+    },
     on: vi.fn(),
     registerHook: vi.fn(),
     registerTool: vi.fn(),
+    registerService: vi.fn(),
   };
 
   await plugin.register(mockApi);
@@ -119,5 +126,49 @@ describe("plugin gateway:startup hook", () => {
       delete process.env.TAILSCALE_AUTH_KEY;
       const messages = await runStartup(tmpDir);
       expect(messages.some((m) => m.includes("tailscale failed"))).toBe(true);
+  });
+});
+
+// ── servePort configuration tests ───────────────────────────────────────────
+
+describe("plugin servePort config", () => {
+  let tmpDir: string;
+  let listener: Server;
+  let occupiedPort: number;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "ts-plugin-"));
+    await setupFakeBinaries(tmpDir);
+    await writeFile(join(tmpDir, ".ts-auth"), "existing-key");
+
+    // Occupy a port to simulate a running gateway
+    listener = createServer();
+    await new Promise<void>((resolve) => listener.listen(0, resolve));
+    occupiedPort = (listener.address() as any).port;
+  });
+
+  afterEach(async () => {
+    listener.close();
+    const mgr = new TailscaleManager(tmpDir);
+    await mgr.stopDaemon().catch(() => {});
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("uses custom servePort instead of gateway port for TLS listener", async () => {
+    process.env.TAILSCALE_AUTH_KEY = "tskey-auth-test";
+    const messages = await runStartup(tmpDir, occupiedPort, undefined, 8443);
+
+    expect(messages.some((m) => m.includes("tcp:8443"))).toBe(true);
+    expect(messages.some((m) => m.includes(`127.0.0.1:${occupiedPort}`))).toBe(true);
+    delete process.env.TAILSCALE_AUTH_KEY;
+  });
+
+  it("defaults servePort to 443 when not configured", async () => {
+    process.env.TAILSCALE_AUTH_KEY = "tskey-auth-test";
+    const messages = await runStartup(tmpDir, occupiedPort);
+
+    expect(messages.some((m) => m.includes("tcp:443"))).toBe(true);
+    expect(messages.some((m) => m.includes(`127.0.0.1:${occupiedPort}`))).toBe(true);
+    delete process.env.TAILSCALE_AUTH_KEY;
   });
 });

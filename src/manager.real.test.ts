@@ -14,6 +14,7 @@ import { access, mkdtemp, rm } from "fs/promises";
 import { constants } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { createServer, type Server } from "net";
 import { TailscaleManager } from "./manager.js";
 
 const AUTH_KEY = process.env.TAILSCALE_AUTH_KEY;
@@ -93,6 +94,28 @@ describe.skipIf(!AUTH_KEY)("TailscaleManager (real binaries)", () => {
     await mgr.serve(["--tls-terminated-tcp", "443", "127.0.0.1:9999"]);
     const status = await mgr.serveStatus();
     expect(status.join("\n")).toContain("127.0.0.1:9999");
+  }, 30_000);
+
+  it("serves on a different port than the occupied gateway port", async () => {
+    await mgr.serveReset();
+
+    // Occupy a port to simulate a running gateway
+    const server: Server = await new Promise((resolve) => {
+      const s = createServer();
+      s.listen(0, () => resolve(s));
+    });
+    const gatewayPort = (server.address() as any).port;
+
+    try {
+      await mgr.serve(["--tls-terminated-tcp", "8443", `127.0.0.1:${gatewayPort}`]);
+      const status = await mgr.serveStatus();
+      const statusStr = status.join("\n");
+      expect(statusStr).toContain(`127.0.0.1:${gatewayPort}`);
+      expect(statusStr).toContain("8443");
+    } finally {
+      await mgr.serveReset();
+      server.close();
+    }
   }, 30_000);
 
   it("resets serve config", async () => {

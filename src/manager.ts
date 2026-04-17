@@ -8,6 +8,12 @@ import { Readable } from "stream";
 
 const execFileAsync = promisify(execFile);
 
+export type ServeProto = "https" | "http" | "tcp" | "tls-terminated-tcp";
+
+export function protoFlag(proto: ServeProto, port: number): string {
+  return `--${proto}=${port}`;
+}
+
 const ARCH_MAP: Record<string, string> = {
   x64: "amd64",
   arm64: "arm64",
@@ -119,7 +125,7 @@ export class TailscaleManager {
         "-af",
         `${this.daemonBin} --statedir=${this.stateDir}`,
       ]);
-      const n = parseInt(stdout.trim().split(/\s+/)[0], 10);
+      const n = parseInt((stdout ?? "").trim().split(/\s+/)[0], 10);
       return isNaN(n) ? null : n;
     } catch {
       return null;
@@ -262,7 +268,7 @@ export class TailscaleManager {
       ...(tags ? [`--advertise-tags=${tags}`] : []),
       ...(this.loginServer ? [`--login-server=${this.loginServer}`] : []),
     ]);
-    return [stdout.trim(), "Tailscale is up!"].filter(Boolean);
+    return [(stdout ?? "").trim(), "Tailscale is up!"].filter(Boolean);
   }
 
   async status(): Promise<string[]> {
@@ -289,7 +295,7 @@ export class TailscaleManager {
         // Non-zero exit still carries useful stdout (e.g. NeedsLogin state).
         tsStatus = (e as { stdout?: string }).stdout ?? (e as Error).message;
       }
-      lines.push("--- tailscale status ---", tsStatus.trim());
+      lines.push("--- tailscale status ---", (tsStatus ?? "").trim());
     }
 
     return lines;
@@ -312,7 +318,7 @@ export class TailscaleManager {
       "3",
       target,
     ]);
-    return [stdout.trim()];
+    return [(stdout ?? "").trim()];
   }
 
   async serve(args: string[]): Promise<string[]> {
@@ -327,7 +333,7 @@ export class TailscaleManager {
       "serve",
       ...fullArgs,
     ]);
-    return [stdout.trim()];
+    return [(stdout ?? "").trim()];
   }
 
   async serveStatus(): Promise<string[]> {
@@ -336,7 +342,7 @@ export class TailscaleManager {
       "serve",
       "status",
     ]);
-    return [stdout.trim()];
+    return [(stdout ?? "").trim()];
   }
 
   async serveReset(): Promise<string[]> {
@@ -348,6 +354,7 @@ export class TailscaleManager {
       "serve",
       "reset",
     ]);
-    return [stdout.trim()];
+    return [(stdout ?? "").trim()];
   }
+
 }

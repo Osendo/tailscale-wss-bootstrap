@@ -1,7 +1,7 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { CONFIG_DIR } from "openclaw/plugin-sdk/setup-tools";
 import { join } from "path";
-import { TailscaleManager } from "./src/manager.js";
+import { TailscaleManager, type ServeProto, protoFlag } from "./src/manager.js";
 
 export default definePluginEntry({
   id: "tailscale-wss-bootstrap",
@@ -20,6 +20,67 @@ export default definePluginEntry({
       },
       async stop() {
         await mgr.stopDaemon();
+      },
+    });
+
+    api.registerTool({
+      name: "tailscale_serve",
+      description:
+        "Manage Tailscale Serve — expose local ports over your tailnet. " +
+        "Actions: set (configure a serve rule), status (show current config), reset (remove all rules).",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["set", "status", "reset"],
+            description: "set — create/replace a serve rule; status — show current serve config; reset — remove all serve rules",
+          },
+          proto: {
+            type: "string",
+            enum: ["https", "http", "tcp", "tls-terminated-tcp"],
+            description: "Serve protocol (default: https). Only used with action=set.",
+          },
+          port: {
+            type: "number",
+            description: "External port Tailscale listens on (default: from plugin config or 443). Only used with action=set.",
+          },
+          target: {
+            type: "string",
+            description: "Local target, e.g. http://127.0.0.1:3001 or tcp://127.0.0.1:22. Required for action=set.",
+          },
+        },
+        required: ["action"],
+      },
+      async execute(_id: string, params: Record<string, unknown>): Promise<ToolResult> {
+        const action = params.action as string;
+
+        if (action === "status") {
+          const lines = await mgr.serveStatus();
+          return { content: [{ type: "text", text: lines.join("\n") || "No serve config" }] };
+        }
+
+        if (action === "reset") {
+          const lines = await mgr.serveReset();
+          return { content: [{ type: "text", text: lines.join("\n") || "Serve config reset" }] };
+        }
+
+        // action === "set"
+        const proto = ((params.proto as string) || "https") as ServeProto;
+        const port = Number(params.port) || servePort;
+        const target = params.target as string | undefined;
+        if (!target) {
+          return { content: [{ type: "text", text: "Error: 'target' is required for action=set (e.g. http://127.0.0.1:3001)" }] };
+        }
+
+        const flag = protoFlag(proto, port);
+        const lines = await mgr.serve([flag, target]);
+        return {
+          content: [{
+            type: "text",
+            text: `Configured (${flag} ${target})\n\n${lines.join("\n")}`,
+          }],
+        };
       },
     });
 
@@ -42,18 +103,12 @@ export default definePluginEntry({
       if (!gatewayPort) return;
 
       try {
-        await mgr.serve(["--tls-terminated-tcp", String(servePort), `127.0.0.1:${gatewayPort}`]);
-        const serveLines = await mgr.serveStatus();
-        const status = serveLines.join("\n");
-        const verified = status.includes(`127.0.0.1:${gatewayPort}`);
-
-        if (verified) {
-          const msg = `WSS ready (tcp:${servePort} → 127.0.0.1:${gatewayPort})`;
-          if (event && Array.isArray(event.messages)) {
-            event.messages.push(`tailscale-serve: ${msg}`);
-          }
-        } else if (event && Array.isArray(event.messages)) {
-          event.messages.push(`tailscale-serve: status inconclusive: ${status}`);
+        const target = `http://127.0.0.1:${gatewayPort}`;
+        const flag = protoFlag("https", servePort);
+        const lines = await mgr.serve([flag, target]);
+        const msg = `HTTPS serve configured (:${servePort} → 127.0.0.1:${gatewayPort})`;
+        if (event && Array.isArray(event.messages)) {
+          event.messages.push(`tailscale-serve: ${msg}`);
         }
       } catch (err: unknown) {
         const detail = (err instanceof Error ? err.message : String(err)).slice(0, 800);

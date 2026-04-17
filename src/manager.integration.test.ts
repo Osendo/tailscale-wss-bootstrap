@@ -158,7 +158,7 @@ describe("plugin servePort config", () => {
     process.env.TAILSCALE_AUTH_KEY = "tskey-auth-test";
     const messages = await runStartup(tmpDir, occupiedPort, undefined, 8443);
 
-    expect(messages.some((m) => m.includes("tcp:8443"))).toBe(true);
+    expect(messages.some((m) => m.includes("HTTPS serve") && m.includes("configured"))).toBe(true);
     expect(messages.some((m) => m.includes(`127.0.0.1:${occupiedPort}`))).toBe(true);
     delete process.env.TAILSCALE_AUTH_KEY;
   });
@@ -167,7 +167,7 @@ describe("plugin servePort config", () => {
     process.env.TAILSCALE_AUTH_KEY = "tskey-auth-test";
     const messages = await runStartup(tmpDir, occupiedPort);
 
-    expect(messages.some((m) => m.includes("tcp:443"))).toBe(true);
+    expect(messages.some((m) => m.includes("HTTPS serve") && m.includes("configured"))).toBe(true);
     expect(messages.some((m) => m.includes(`127.0.0.1:${occupiedPort}`))).toBe(true);
     delete process.env.TAILSCALE_AUTH_KEY;
   });

@@ -1,0 +1,17 @@
+FROM node:22-slim
+
+# iptables needed by tailscaled for routing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates iptables iproute2 \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install deps first (layer cache)
+COPY package.json package-lock.json* ./
+RUN npm install --ignore-scripts
+
+COPY . .
+
+# TAILSCALE_AUTH_KEY must be passed at runtime
+CMD ["npx", "vitest", "run", "src/manager.real.test.ts"]

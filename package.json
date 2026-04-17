@@ -1,0 +1,29 @@
+{
+  "name": "tailscale-wss-bootstrap",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.4.5",
+      "minGatewayVersion": "2026.4.5"
+    }
+  },
+  "scripts": {
+    "test": "vitest run --exclude 'src/manager.real.test.ts'",
+    "test:all": "vitest run",
+    "test:real": "vitest run src/manager.real.test.ts",
+    "test:real:docker": "docker build -f Dockerfile.test -t tailer-test . && docker run --rm --cap-add=NET_ADMIN --cap-add=NET_RAW --device=/dev/net/tun -e TAILSCALE_AUTH_KEY=\"$TAILSCALE_AUTH_KEY\" tailer-test",
+    "test:real:headscale": "bash test/run-real.sh",
+    "test:watch": "vitest --exclude 'src/manager.real.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {}
+}

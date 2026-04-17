@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+const args = process.argv.slice(2);
+
+let socketPath = null;
+const remaining = [];
+for (const arg of args) {
+  if (arg.startsWith('--socket=')) {
+    socketPath = arg.slice('--socket='.length);
+  } else {
+    remaining.push(arg);
+  }
+}
+
+if (!socketPath) {
+  process.stderr.write('fake-tailscale: --socket required\n');
+  process.exit(1);
+}
+
+const stateDir = path.dirname(socketPath);
+const authFile = path.join(stateDir, '.ts-auth');
+const serveFile = path.join(stateDir, '.ts-serve');
+
+// Socket file must exist (means daemon is running)
+if (!fs.existsSync(socketPath)) {
+  process.stderr.write('failed to connect to tailscaled. (is it running?)\n');
+  process.exit(1);
+}
+
+const cmd = remaining[0];
+
+if (cmd === 'status') {
+  if (fs.existsSync(authFile)) {
+    process.stdout.write('100.64.0.1  mydevice  linux  -\n\nHealth check: OK\n');
+    process.exit(0);
+  } else {
+    process.stdout.write('Logged out.\n\nLog in at https://login.tailscale.com/a/...\n');
+    process.exit(0);
+  }
+}
+
+if (cmd === 'up') {
+  let authKey = null;
+  for (const a of remaining.slice(1)) {
+    if (a.startsWith('--auth-key=')) authKey = a.slice('--auth-key='.length);
+  }
+  if (!authKey) {
+    process.stderr.write('up: --auth-key required\n');
+    process.exit(1);
+  }
+  fs.writeFileSync(authFile, authKey);
+  process.stdout.write('Success.\n');
+  process.exit(0);
+}
+
+if (cmd === 'serve') {
+  // Real tailscale rejects serve when not logged in.
+  if (!fs.existsSync(authFile)) {
+    process.stderr.write('Logged out.\n');
+    process.exit(1);
+  }
+
+  const sub = remaining[1];
+
+  if (sub === 'status') {
+    if (fs.existsSync(serveFile)) {
+      process.stdout.write(fs.readFileSync(serveFile, 'utf8'));
+    } else {
+      process.stdout.write('No serve config\n');
+    }
+    process.exit(0);
+  }
+
+  if (sub === 'reset') {
+    try { fs.unlinkSync(serveFile); } catch {}
+    process.stdout.write('Serve reset.\n');
+    process.exit(0);
+  }
+
+  // serve <args> — e.g. --tls-terminated-tcp 443 127.0.0.1:3001
+  const serveArgs = remaining.slice(1).join(' ');
+  fs.writeFileSync(serveFile, serveArgs + '\n');
+  process.stdout.write('Serve configured.\n');
+  process.exit(0);
+}
+
+if (cmd === 'ping') {
+  const target = remaining[remaining.length - 1];
+  process.stdout.write(`pong from ${target}: 10.2ms\npong from ${target}: 9.8ms\npong from ${target}: 10.1ms\n`);
+  process.exit(0);
+}
+
+process.stderr.write(`fake-tailscale: unknown command: ${cmd}\n`);
+process.exit(1);

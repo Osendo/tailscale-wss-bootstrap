@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+  test-real:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Start Headscale
+        run: |
+          docker run -d --name headscale-ci \
+            -v ${{ github.workspace }}/test/headscale.yaml:/etc/headscale/config.yaml:ro \
+            -p 8080:8080 \
+            headscale/headscale:latest serve
+
+          echo "Waiting for headscale..."
+          for i in $(seq 1 30); do
+            docker exec headscale-ci headscale users list &>/dev/null && break
+            sleep 1
+          done
+
+      - name: Create auth key
+        run: |
+          docker exec headscale-ci headscale users create ci
+          USER_ID=$(docker exec headscale-ci headscale users list -o json | jq -r '.[] | select(.name=="ci") | .id')
+          KEY=$(docker exec headscale-ci headscale preauthkeys create --user "$USER_ID" --reusable --expiration 1h | tail -1 | tr -d '[:space:]')
+          if [ -z "$KEY" ]; then
+            echo "::error::Failed to create headscale pre-auth key"
+            exit 1
+          fi
+          echo "TAILSCALE_AUTH_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Build test image
+        run: docker build -f Dockerfile.test -t tailer-test .
+
+      - name: Run real integration tests
+        run: |
+          docker run --rm \
+            --cap-add=NET_ADMIN --cap-add=NET_RAW \
+            --device=/dev/net/tun \
+            --network=host \
+            -e TAILSCALE_AUTH_KEY="${TAILSCALE_AUTH_KEY}" \
+            -e TS_LOGIN_SERVER=http://127.0.0.1:8080 \
+            tailer-test
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f headscale-ci || true

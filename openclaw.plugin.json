@@ -1,0 +1,19 @@
+{
+  "id": "tailscale-wss-bootstrap",
+  "name": "Tailscale WSS Bootstrap",
+  "description": "Ensures the local Tailscale sidecar is running and WSS-serving when the gateway starts",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "stateDir": {
+        "type": "string",
+        "description": "Tailscale state directory. Defaults to {openclaw_dir}/.tailscale"
+      },
+      "loginServer": {
+        "type": "string",
+        "description": "Custom control server URL (e.g. Headscale). Omit to use Tailscale SaaS."
+      }
+    }
+  }
+}

@@ -23,7 +23,7 @@ On every gateway start the plugin:
 2. Starts `tailscaled` as a detached sidecar process (userspace networking if `/dev/net/tun` is absent)
 3. Reuses existing registered state if available — no auth key needed
 4. Authenticates with `TAILSCALE_AUTH_KEY` only when the node requires login or re-auth
-5. If `gateway.port` is set in OpenClaw config, configures Tailscale Serve with `--tls-terminated-tcp <port> 127.0.0.1:<port>` and verifies the rule is active
+5. If `gateway.port` is set in OpenClaw config, configures Tailscale Serve with `--https=<servePort> http://127.0.0.1:<gatewayPort>`
 
 ## Installation
 
@@ -68,20 +68,34 @@ The plugin works out of the box with zero configuration. All settings below are 
 |---|---|---|
 | `TAILSCALE_AUTH_KEY` | Only on first login / re-auth | Tailscale auth key (tags are optional, passed separately) |
 
-## WSS expose (automatic)
+## Agent tool: `tailscale_serve`
+
+The plugin registers a `tailscale_serve` tool that the agent can invoke to manage Tailscale Serve rules dynamically:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `action` | `"set" \| "status" \| "reset"` | **Required.** set — create/replace a rule; status — show config; reset — remove all rules |
+| `proto` | `"https" \| "http" \| "tcp" \| "tls-terminated-tcp"` | Serve protocol (default: `https`). Only for `action=set`. |
+| `port` | `number` | External port (default: from `servePort` config or `443`). Only for `action=set`. |
+| `target` | `string` | Local target, e.g. `http://127.0.0.1:3001`. Required for `action=set`. |
+
+## HTTPS serve (automatic)
 
 When `gateway.port` is set in OpenClaw config, the plugin automatically runs:
 
 ```
-tailscale serve --tls-terminated-tcp <servePort> 127.0.0.1:<gatewayPort>
+tailscale serve --https=<servePort> http://127.0.0.1:<gatewayPort>
 ```
 
 The `servePort` (default `443`) is the external TLS port that Tailscale listens on; `gatewayPort` is the local port the gateway is bound to. They are intentionally separate so you can avoid port conflicts (e.g. if something else already listens on 443).
 
-The startup message confirms whether the rule is active:
+This means the plugin is safe to restart repeatedly and will self-heal if the serve config drifts.
+
+The startup message confirms the outcome:
 
 ```
-tailscale-serve: WSS ready (tcp:443 → 127.0.0.1:3001)
+tailscale-serve: HTTPS serve configured (:443 → 127.0.0.1:3001)
+tailscale-serve: HTTPS serve already active (:443 → 127.0.0.1:3001)
 ```
 
 ### Why this matters
@@ -104,7 +118,8 @@ const mgr = new TailscaleManager("/path/to/.tailscale");
 await mgr.ensure(process.env.TAILSCALE_AUTH_KEY);
 await mgr.status();
 await mgr.ping("hostname.tail-net.ts.net");
-await mgr.serve(["--tls-terminated-tcp", "3001", "127.0.0.1:3001"]);
+await mgr.serve(["--https=443", "http://127.0.0.1:3001"]);
+await mgr.reconcileServe("https", 443, "http://127.0.0.1:3001");
 await mgr.serveStatus();
 await mgr.serveReset();
 await mgr.stopDaemon();
